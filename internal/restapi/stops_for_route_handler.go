@@ -6,6 +6,8 @@ import (
 	"net/http"
 	"slices"
 	"strconv"
+	"strings"
+	"time"
 
 	"maglev.onebusaway.org/gtfsdb"
 	"maglev.onebusaway.org/internal/logging"
@@ -57,15 +59,19 @@ func (api *RestAPI) stopsForRouteHandler(w http.ResponseWriter, r *http.Request)
 
 	var serviceIDs []string
 	if filterByDate {
-		parsedDate, err := utils.ParseDate(timeParam, currentLocation)
-		if err != nil {
+		if err := utils.ValidateServiceDate(timeParam); err != nil {
 			fieldErrors := map[string][]string{
 				"time": {`Invalid field value for field "time".`},
 			}
 			api.validationErrorResponse(w, r, fieldErrors)
 			return
 		}
-		formattedDate := parsedDate.Format("20060102")
+		// A date string is already a calendar date. Converting it to local
+		// midnight can land on yesterday when DST skips midnight.
+		formattedDate := strings.ReplaceAll(timeParam, "-", "")
+		if millis, ok := utils.ParseEpochMillis(timeParam); ok {
+			formattedDate = time.UnixMilli(millis).In(currentLocation).Format("20060102")
+		}
 		serviceIDs, err = api.GtfsManager.GtfsDB.Queries.GetActiveServiceIDsForDate(ctx, formattedDate)
 		if err != nil {
 			api.serverErrorResponse(w, r, err)
